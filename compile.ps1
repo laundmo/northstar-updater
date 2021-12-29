@@ -1,0 +1,1 @@
+py -m nuitka --standalone --onefile --enable-plugin=anti-bloat --include-module=tqdm main.py

@@ -1,0 +1,4 @@
+main.*
+.venv
+NorthstarUpdater.exe
+updater_config.ini
