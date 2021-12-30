@@ -1,4 +1,5 @@
 import configparser
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from github.GitRelease import GitRelease
@@ -69,12 +70,21 @@ class FileNotInZip(Exception):
     pass
 
 
+update_everything = False
+try:
+    i = sys.argv.index("--update-everything")
+    sys.argv.pop(i)
+    update_everything = True
+except ValueError:
+    pass
+
+
 class Updater:
     def __init__(self, blockname):
         self.blockname = blockname
         self.repository = config.get(blockname, "repository")
+        self._file = config.get(self.blockname, "file", fallback="mod.json")
         self.repo = g.get_repo(self.repository)
-        self._file = config.get(blockname, "file")
         self.ignore_prerelease = config.getboolean(
             blockname, "ignore_prerelease", fallback=True
         )
@@ -101,10 +111,15 @@ class Updater:
         for release in releases:
             if release.prerelease and self.ignore_prerelease:
                 continue
+            if update_everything:
+                return release
             if release.published_at > self.last_update:
                 return release
-            if not self.file.exists():
-                return release
+            if self._file != "mod.json":
+                if not self.file.exists():
+                    return release
+            # TODO: check for installed mods that dont use file and rely on some path-modifying extract method.
+            # maybe another config var for check installed path thats only used for checking and automatically written on successful extract?
         raise NoValidRelease("No new release found")
 
     def asset(self, release: GitRelease):
@@ -117,14 +132,49 @@ class Updater:
                 return asset
         raise NoValidAsset("No valid asset was found in release")
 
-    def extract(self, zip_: zipfile.ZipFile):
+    def _mod_json_extractor(self, zip_: zipfile.ZipFile):
+        parts = None
+        found = None
+        for fileinfo in zip_.infolist():
+            fp = Path(fileinfo.filename)
+            if fp.name == self._file:
+                parts = fp.parts[:-2]
+                found = fp
+                break
+        if parts:
+            for fileinfo in zip_.infolist():
+                fp = Path(fileinfo.filename)
+                strip = len(parts)
+                if fp.parts[:strip] == parts:
+                    new_fp = Path(*fp.parts[strip:])
+                    fileinfo.filename = str(new_fp) + (
+                        "/" if fileinfo.filename.endswith("/") else ""
+                    )
+                    zip_.extract(fileinfo, self.install_dir)
+        elif found:
+            for fileinfo in zip_.infolist():
+                if zip_.filename:
+                    fp = Path(Path(zip_.filename).stem) / fileinfo.filename
+                    zip_.extract(fileinfo, self.install_dir)
+        else:
+            raise FileNotInZip(f"mod.json not found in the selected release zip.")
+
+    def _file_extractor(self, zip_: zipfile.ZipFile):
         namelist = zip_.namelist()
         if self._file in namelist or self._file.strip("/") + "/mod.json" in namelist:
             for file_ in namelist:
                 if file_ not in self.exclude_files:
                     zip_.extract(file_, self.install_dir)
         else:
+            for zip_info in zip_.infolist():
+                zip_info.filename
             raise FileNotInZip(f"{self._file} not found in the selected release zip.")
+
+    def extract(self, zip_: zipfile.ZipFile):
+        if self._file != "mod.json":
+            self._file_extractor(zip_)
+        else:
+            self._mod_json_extractor(zip_)
 
     def run(self):
         print(f"Started updater for {self.blockname}")
@@ -154,10 +204,12 @@ class SelfUpdater(Updater):
                 return release
             if not self.file.exists():
                 return release
-            if datetime.fromtimestamp(self.file.stat().st_mtime) < release.published_at - timedelta(hours=1):
+            if datetime.fromtimestamp(
+                self.file.stat().st_mtime
+            ) < release.published_at - timedelta(hours=1):
                 return release
         raise NoValidRelease("No new release found")
-    
+
     def asset(self, release: GitRelease):
         assets = release.get_assets()
         for asset in assets:
@@ -200,6 +252,8 @@ def main():
             print(f"Zip file for {section} doesn't contain expected files.")
         except Exception as e:
             traceback.print_exc()
+            print(f"Starting Northstar in 10 seconds")
+            time.sleep(10)
     try:
         subprocess.run(
             [config.get("Launcher", "filename")]

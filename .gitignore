@@ -4,3 +4,5 @@ NorthstarUpdater.exe
 updater_config.ini
 test
 t.py
+launch.json
+test.zip
