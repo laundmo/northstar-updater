@@ -1,1 +1,1 @@
-py -m nuitka --standalone --onefile --enable-plugin=anti-bloat --include-module=tqdm NorthstarUpdater.py
+py -m nuitka --standalone --onefile --enable-plugin=anti-bloat --include-module=tqdm --windows-icon-from-ico=northstar_green.ico NorthstarUpdater.py
