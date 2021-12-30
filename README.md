@@ -3,9 +3,15 @@ Auto-updater for the Northstar Titanfall 2 client
 
 ## Usage
 
-Put the exe into your Titanfall 2 directory next to Titanfall2.exe.
+Put the exe into your Titanfall 2 directory next to Titanfall2.exe
+Then, when running NorthstarUpdater.exe it will update and then start Northstar.
+I recommend setting it up as a external game in steam or as a shortcut on your desktop, instead of NorthstarLauncher.exe.
 
-Configuration for Mods:
+You dont have to have Northstar or any of the mods you configure installed, if you dont have them it will download them automatically.
+
+### Configuration:
+After the first launch, it will have generated a `updater_config.ini` which you can edit to allow it to update mods.
+
 ```ini
 [BetterServerbrowser]
 repository = F1F7Y/Better.Serverbrowser
