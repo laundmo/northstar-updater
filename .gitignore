@@ -1,4 +1,6 @@
-main.*
+NorthstarUpdater.*
 .venv
 NorthstarUpdater.exe
 updater_config.ini
+test
+t.py

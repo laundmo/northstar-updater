@@ -1,117 +1,202 @@
+import configparser
+from datetime import datetime, timedelta
 from pathlib import Path
+from github.GitRelease import GitRelease
+import shutil
+import requests
 import tempfile
 import zipfile
-
-import httpx
-import configparser
-import semver
+from github import Github
 import sys
+import traceback
 import subprocess
 from tqdm import tqdm
 
 config = configparser.ConfigParser()
 
-config["Updater"] = {
+config["Northstar"] = {
     "repository": "R2Northstar/Northstar",
+    "last_update": "2021-12-29T05:14:32",
     "ignore_prerelease": "true",
+    "file": "NorthstarLauncher.exe",
+    "install_dir": ".",
+    "exclude_files": "ns_startup_args.txt|ns_startup_args_dedi.txt",
 }
-config["Launcher"] = {
-    "filename": "NorthstarLauncher.exe",
-    "arguments": "",
+config["NorthstarUpdater"] = {
+    "repository": "laundmo/northstar-updater",
+    "last_update": "0001-01-01T00:00:00",
+    "ignore_prerelease": "true",
+    "file": "NorthstarUpdater.exe",
+    "install_dir": ".",
+    "exclude_files": "",
 }
-config["Version"] = {"semver": "0.0.0"}
+config["ExampleMod"] = {
+    "repository": "example/example-mod",
+    "last_update": "0001-01-01T00:00:00",
+    "ignore_prerelease": "true",
+    "file": "Mod.Folder",
+    "install_dir": "./R2Northstar/mods",
+}
+config["Launcher"] = {"filename": "NorthstarLauncher.exe", "arguments": ""}
+
 
 config.read("updater_config.ini")
 
-repo_url = f"https://api.github.com/repos/{config.get('Updater', 'repository')}/"
-
-client = httpx.Client(base_url=repo_url, follow_redirects=True)
-
-
-def should_download(tag: str) -> bool:
-    current_ver = semver.VersionInfo.parse(config.get("Version", "semver"))
-    tag = tag.removeprefix("v")
-    return current_ver < tag or not (Path.cwd() / config.get("Launcher", "filename")).exists()
-
-
-class NoNewVersion(Exception):
-    pass
-
-
-def get_release():
-    releases = client.get("releases").json()
-    older = []
-    for release in releases:
-        if config.get("Updater", "ignore_prerelease") and release["prerelease"]:
-            continue
-        if should_download(release["tag_name"]):
-            return release
-        else:
-            older.append(release)
-    raise NoNewVersion("No newer version could be found", older)
-
-
-class ReleaseIssue(Exception):
-    pass
-
-
-def get_asset(release_id) -> str:
-    release = client.get(f"/releases/{release_id}/assets")
-    for release_file in release.json():
-        if release_file["content_type"] == "application/x-zip-compressed":
-            return release_file["browser_download_url"]
-    raise ReleaseIssue("No release zip file found.")
+g = Github()
 
 
 def download(url, download_file):
-    with client.stream("GET", url) as response:
-        total = int(response.headers["Content-Length"])
+    with requests.get(url, stream=True) as response:
+        total = int(response.headers.get("content-length", 0))
+        block_size = 1024
+        with tqdm(
+            total=total, unit_scale=True, unit_divisor=block_size, unit="B"
+        ) as progress:
+            for data in response.iter_content(block_size):
+                progress.update(len(data))
+                download_file.write(data)
 
-        with tqdm(total=total, unit_scale=True, unit_divisor=1024, unit="B") as progress:
-            num_bytes_downloaded = response.num_bytes_downloaded
-            for chunk in response.iter_bytes():
-                download_file.write(chunk)
-                progress.update(response.num_bytes_downloaded - num_bytes_downloaded)
-                num_bytes_downloaded = response.num_bytes_downloaded
 
-
-class ZipfileIssue(Exception):
+class NoValidRelease(Exception):
     pass
 
 
-def download_new():
-    print("Fetching Northstar releases")
-    release = get_release()
-    download_url = get_asset(release["id"])
-    print(f"Downloading release: {download_url}")
-    dest = Path.cwd()
-    with tempfile.NamedTemporaryFile() as download_file:
-        download(download_url, download_file)
-        print(f"Extracting to {dest}")
-        release_zip = zipfile.ZipFile(download_file)
-        if config.get("Launcher", "filename") in release_zip.namelist():
-            release_zip.extractall(str(Path.cwd()))
-            config.set("Version", "semver", release["tag_name"].removeprefix("v"))
+class NoValidAsset(Exception):
+    pass
+
+
+class FileNotInZip(Exception):
+    pass
+
+
+class Updater:
+    def __init__(self, blockname):
+        self.blockname = blockname
+        self.repository = config.get(blockname, "repository")
+        self.repo = g.get_repo(self.repository)
+        self._file = config.get(blockname, "file")
+        self.ignore_prerelease = config.getboolean(
+            blockname, "ignore_prerelease", fallback=True
+        )
+        self.install_dir = Path(
+            config.get(blockname, "install_dir", fallback="./R2Northstar/mods")
+        )
+        self.file = (self.install_dir / self._file).resolve()
+        self.exclude_files = config.get(blockname, "exclude_files", fallback="").split(
+            "|"
+        )
+
+    @property
+    def last_update(self):
+        return datetime.fromisoformat(
+            config.get(self.blockname, "last_update", fallback=datetime.min.isoformat())
+        )
+
+    @last_update.setter
+    def last_update(self, value: datetime):
+        config.set(self.blockname, "last_update", value.isoformat())
+
+    def release(self):
+        releases = self.repo.get_releases()
+        for release in releases:
+            if release.prerelease and self.ignore_prerelease:
+                continue
+            if release.published_at > self.last_update:
+                return release
+            if not self.file.exists():
+                return release
+        raise NoValidRelease("No new release found")
+
+    def asset(self, release: GitRelease):
+        assets = release.get_assets()
+        for asset in assets:
+            if asset.content_type in (
+                "application/zip",
+                "application/x-zip-compressed",
+            ):
+                return asset
+        raise NoValidAsset("No valid asset was found in release")
+
+    def extract(self, zip_: zipfile.ZipFile):
+        namelist = zip_.namelist()
+        if self._file in namelist:
+            for file_ in namelist:
+                if file_ not in self.exclude_files:
+                    zip_.extract(file_, self.install_dir)
         else:
-            raise ZipfileIssue("Northstar not found in release zip.")
+            raise FileNotInZip(f"{self._file} not found in the selected release zip.")
+
+    def run(self):
+        print(f"Started updater for {self.blockname}")
+        try:
+            release = self.release()
+            asset = self.asset(release)
+        except NoValidRelease:
+            print("No new release found")
+            return
+        except NoValidAsset:
+            print("No matching asset in release, possibly faulty release.")
+            return
+        with tempfile.NamedTemporaryFile() as download_file:
+            download(asset.browser_download_url, download_file)
+            release_zip = zipfile.ZipFile(download_file)
+            self.extract(release_zip)
+            self.last_update = release.published_at
+
+
+class SelfUpdater(Updater):
+    def asset(self, release: GitRelease):
+        assets = release.get_assets()
+        for asset in assets:
+            if asset.content_type in ("application/x-msdownload",):
+                return asset
+        raise NoValidAsset("No valid asset was found in release")
+
+    def run(self):
+        print(f"Started updater for {self.blockname}")
+        try:
+            release = self.release()
+            asset = self.asset(release)
+        except NoValidRelease:
+            print("No new release found")
+            return
+        except NoValidAsset:
+            print("No matching asset in release, possibly faulty release.")
+            return
+        with tempfile.NamedTemporaryFile(delete=False) as download_file:
+            download(asset.browser_download_url, download_file)
+        newfile = self.file.with_suffix(".new")
+        shutil.move(download_file.name, newfile)
+        script = f"timeout 20 && del {self.file} && move {newfile} {self.file}"
+        subprocess.Popen(["cmd", "/c", script])
+        print("Starting timer for self-replacer, please dont interrupt.")
+        self.last_update = release.published_at
 
 
 def main():
-    print("Northstar Updater")
+    for section in config.sections():
+        try:
+            if section not in ("Launcher", "ExampleMod"):
+                if section == "NorthstarUpdater":
+                    u = SelfUpdater(section)
+                    u.run()
+                else:
+                    u = Updater(section)
+                    u.run()
+        except FileNotInZip:
+            print(f"Zip file for {section} doesn't contain expected files.")
+        except Exception as e:
+            traceback.print_exc()
     try:
-        download_new()
-    except NoNewVersion:
-        print("No new version found")
-    except ReleaseIssue:
-        print("Issue finding file in release.")
-    except ZipfileIssue:
-        print("Northstar launcher not found in release zip.")
-    print("Launching Northstar")
-    subprocess.run(
-        [config.get("Launcher", "filename")]
-        + config.get("Launcher", "arguments").split(" ")
-        + sys.argv[1:],
-        cwd=str(Path.cwd())
+        subprocess.run(
+            [config.get("Launcher", "filename")]
+            + config.get("Launcher", "arguments").split(" ")
+            + sys.argv[1:],
+            cwd=str(Path.cwd()),
+        )
+    except FileNotFoundError:
+        print(
+            f"Could not run {config.get('Launcher', 'filename')}, does this file exist or is the configuration wrong?"
         )
 
 
