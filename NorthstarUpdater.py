@@ -34,7 +34,7 @@ config["ExampleMod"] = {
     "repository": "example/example-mod",
     "last_update": "0001-01-01T00:00:00",
     "ignore_prerelease": "true",
-    "file": "Mod.Folder",
+    "file": "Mod.Folder/",
     "install_dir": "./R2Northstar/mods",
 }
 config["Launcher"] = {"filename": "NorthstarLauncher.exe", "arguments": ""}
@@ -119,7 +119,7 @@ class Updater:
 
     def extract(self, zip_: zipfile.ZipFile):
         namelist = zip_.namelist()
-        if self._file in namelist:
+        if self._file in namelist or self._file.strip("/") + "/mod.json" in namelist:
             for file_ in namelist:
                 if file_ not in self.exclude_files:
                     zip_.extract(file_, self.install_dir)
@@ -145,6 +145,19 @@ class Updater:
 
 
 class SelfUpdater(Updater):
+    def release(self):
+        releases = self.repo.get_releases()
+        for release in releases:
+            if release.prerelease and self.ignore_prerelease:
+                continue
+            if release.published_at > self.last_update:
+                return release
+            if not self.file.exists():
+                return release
+            if datetime.fromtimestamp(self.file.stat().st_mtime) < release.published_at - timedelta(hours=1):
+                return release
+        raise NoValidRelease("No new release found")
+    
     def asset(self, release: GitRelease):
         assets = release.get_assets()
         for asset in assets:
