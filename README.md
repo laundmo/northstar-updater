@@ -5,7 +5,6 @@ Auto-updater for the Northstar Titanfall 2 client
 
 Put the exe into your Titanfall 2 directory next to Titanfall2.exe
 Then, when running NorthstarUpdater.exe it will update and then start Northstar.
-I recommend setting it up as a external game in steam or as a shortcut on your desktop, instead of NorthstarLauncher.exe.
 
 You dont have to have Northstar or any of the mods you configure installed, if you dont have them it will download them automatically.
 
@@ -16,18 +15,15 @@ After the first launch, it will have generated a `updater_config.ini` which you 
 [BetterServerbrowser]
 repository = F1F7Y/Better.Serverbrowser
 last_update = 0001-01-01T00:00:00
-ignore_prerelease = true
-file = Better.Serverbrowser/mod.json
-install_dir = ./R2Northstar/mods
 ```
 |key|explanation|
 |-|-|
 |repository|The GitHub username and repository of the mod (should contain releases)|
 |last_update|by default this is 0, and will be overwritten whenever the updater has completed an update|
-|ignore_prerelease|true by default, this will prevent the autoupdater from updating to a prerelease version|
-|file|This is pointing to some file in the mod, used to verify the correct zip was downloaded and whether the mod is already installed.|
-|install_dir|the directory into which the release will be unpacked. This is obviously different for other non-mod things like the updater itself|
-|exclude_files|A pipe (|) seperated list of files to exclude when extracting the zip. can be useful for config files.|
+|ignore_prerelease (optional, default is true)|true by default, this will prevent the autoupdater from updating to a prerelease version|
+|file (optional)|This is pointing to some file in the mod, used to verify the correct zip was downloaded and whether the mod is already installed.|
+|install_dir (optional, default is ./R2Northstar/mods)|the directory into which the release will be unpacked. This is obviously different for other non-mod things like the updater itself|
+|exclude_files (optional)|A pipe (|) seperated list of files to exclude when extracting the zip. can be useful for config files.|
 
 Working princple:
 The udpater is just a fancy automatic way to download and extract zip archives from github.

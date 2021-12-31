@@ -34,14 +34,24 @@ config["NorthstarUpdater"] = {
 config["ExampleMod"] = {
     "repository": "example/example-mod",
     "last_update": "0001-01-01T00:00:00",
-    "ignore_prerelease": "true",
-    "file": "Mod.Folder/",
-    "install_dir": "./R2Northstar/mods",
 }
 config["Launcher"] = {"filename": "NorthstarLauncher.exe", "arguments": ""}
 
 
 config.read("updater_config.ini")
+
+if "Version" in config:
+    del config["Version"]
+
+if "Updater" in config:
+    del config["Updater"]
+
+if "ignore_prerelease" in config["ExampleMod"]:
+    del config["ExampleMod"]["ignore_prerelease"]
+if "file" in config["ExampleMod"]:
+    del config["ExampleMod"]["file"]
+if "install_dir" in config["ExampleMod"]:
+    del config["ExampleMod"]["install_dir"]
 
 g = Github()
 
