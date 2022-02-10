@@ -1,3 +1,7 @@
+# ARCHIVED
+
+please use a launcher like VTOL https://github.com/BigSpice/VTOL
+
 # northstar-updater
 Auto-updater for the Northstar Titanfall 2 client
 
